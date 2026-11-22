@@ -1,36 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# EchoNook Web
 
-## Getting Started
+EchoNook 是一个面向桌面浏览器的虚拟陪伴频道。当前仓库是独立的前端项目，基于 Next.js、React、TypeScript 和 Tailwind CSS。第一版提供频道场景、文字对话界面，以及连接 FastAPI 服务端的可停止流式回复。会话保存、语音和虚拟人物将在后续迭代中接入。
 
-First, run the development server:
+## 本地运行
+
+需要 Node.js 20.9 或更高版本及 npm。
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+先在独立的 `echo-nook-api` 仓库启动服务端（默认 `http://localhost:8000`），再访问 <http://localhost:3000>。前端仓库根目录已有本机 `.env.local`，其中 `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`；如果服务端地址或端口变化，修改这个值并重启前端。模型 API Key 只放在服务端 `.env`。运行质量检查：
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run lint
+npm run build
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+输入文字后，前端调用服务端 `/api/v1/conversations/messages:stream` 并逐段显示回复；刷新页面会清空当前对话。服务端的 `FRONTEND_ORIGIN` 应与浏览器访问前端的地址一致。
 
-## Learn More
+## 当前功能
 
-To learn more about Next.js, take a look at the following resources:
+- 桌面频道页面与窄屏纵向布局
+- 消息输入、Enter 发送和 Shift + Enter 换行
+- 真实流式回复、停止生成和新建对话
+- Markdown 回复安全渲染
+- 对话区域独立状态和可替换的回复提供器
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 项目结构
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```text
+src/
+├── app/                 Next.js 路由、根布局、全局样式
+├── modules/
+│   ├── channel/         频道页面、页头、静态场景
+│   └── conversation/    消息 UI、状态 Hook、消息类型、回复提供器
+└── shared/
+    ├── lib/             无业务含义的通用函数
+    └── ui/              无业务含义的基础组件
+docs/                    架构和目录说明
+public/                  可直接访问的静态资源
+```
 
-## Deploy on Vercel
+详细职责、依赖规则和后续接入方案见 [前端架构与目录说明](docs/frontend-architecture.md)。
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 前后端连接
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+后端位于独立仓库 `echo-nook-api`。`http-reply-provider.ts` 负责 `fetch`、SSE 解析及后端错误处理；`use-conversation.ts` 管理消息状态和停止操作，页面组件不直接调用接口。`NEXT_PUBLIC_API_BASE_URL` 可覆盖默认后端地址。`demo-reply-provider.ts` 保留为离线演示实现，目前页面不使用它。
