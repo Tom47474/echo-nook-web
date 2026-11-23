@@ -20,6 +20,14 @@ npm run build
 
 输入文字后，前端调用服务端 `/api/v1/conversations/messages:stream` 并逐段显示回复；刷新页面会清空当前对话。服务端的 `FRONTEND_ORIGIN` 应与浏览器访问前端的地址一致。
 
+## 环境与对话调试
+
+复制 `.env.example` 可以查看完整配置。`APP_ENV` 使用 `development`、`test` 或 `production`，`ENABLE_CONVERSATION_DEBUG=true` 用于显式开启对话调试浮动球。调试面板只有在 `APP_ENV` 为 `development` 或 `test` 且开关为 `true` 时才挂载；`production` 即使误设开关也会强制关闭。`NEXT_PUBLIC_API_BASE_URL` 会进入浏览器构建产物，不能在任何 `NEXT_PUBLIC_` 变量中保存密钥。
+
+浮动球提供消息插入、长文本、Markdown、批量消息、清空状态，以及阻止 SSE、部分回复后断流、缺少完成事件和慢速流等场景。故障模拟发生在浏览器端，不修改后端接口，也不代表模型供应商已经停止计算或计费。
+
+调试工具代码保留在 `master` 及其派生分支中，确保从主分支创建的本地开发分支可以使用。是否显示只由运行环境门禁决定：本机使用 `APP_ENV=development`，测试服务器使用 `APP_ENV=test`，正式服务器使用 `APP_ENV=production`。
+
 ## 当前功能
 
 - 桌面频道页面与窄屏纵向布局
@@ -27,6 +35,7 @@ npm run build
 - 真实流式回复、停止生成和新建对话
 - Markdown 回复安全渲染
 - 对话区域独立状态和可替换的回复提供器
+- 仅限开发与测试环境的对话调试浮动球和流式故障模拟
 
 ## 项目结构
 

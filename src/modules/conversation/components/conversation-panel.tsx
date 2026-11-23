@@ -4,9 +4,10 @@ import { RotateCcw } from "lucide-react";
 import { useConversation } from "../hooks/use-conversation";
 import { MessageInput } from "./message-input";
 import { MessageList } from "./message-list";
+import { ConversationDebugPanel } from "./conversation-debug-panel";
 
-export function ConversationPanel() {
-  const { messages, status, error, send, stop, reset } = useConversation();
+export function ConversationPanel({ debugEnabled = false }: { debugEnabled?: boolean }) {
+  const { messages, status, error, send, stop, reset, debug } = useConversation({ debugEnabled });
   return (
     <section aria-label="对话" className="flex min-h-[540px] flex-col border-t border-white/10 bg-[#151922] lg:min-h-0 lg:border-l lg:border-t-0">
       <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 px-6">
@@ -16,6 +17,7 @@ export function ConversationPanel() {
       <MessageList messages={messages} status={status} />
       {error && <p role="alert" className="mx-5 mb-2 rounded-lg border border-red-300/20 bg-red-300/10 px-3 py-2 text-sm text-red-100">{error}</p>}
       <MessageInput onSend={send} onStop={stop} busy={status === "streaming"} />
+      {debug && <ConversationDebugPanel debug={debug} busy={status === "streaming"} />}
     </section>
   );
 }

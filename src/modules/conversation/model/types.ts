@@ -9,3 +9,5 @@ export interface Message {
 }
 
 export type ConversationStatus = "idle" | "streaming";
+
+export type ConversationDebugScenario = "normal" | "block" | "interrupt" | "missing-completion" | "slow";
