@@ -17,6 +17,9 @@ const scenarios: { value: ConversationDebugScenario; label: string }[] = [
   { value: "interrupt", label: "收到部分内容后断流" },
   { value: "missing-completion", label: "缺少完成事件" },
   { value: "slow", label: "慢速流（每段 800ms）" },
+  { value: "provider-not-configured", label: "模型配置缺失（不可重试）" },
+  { value: "provider-auth-failed", label: "模型鉴权失败（不可重试）" },
+  { value: "provider-rate-limited", label: "模型限流（可重试）" },
 ];
 
 export function ConversationDebugPanel({ debug, busy }: { debug: DebugActions; busy: boolean }) {

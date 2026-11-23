@@ -4,7 +4,7 @@ EchoNook 是一个面向桌面浏览器的虚拟陪伴频道。当前仓库是�
 
 ## 本地运行
 
-需要 Node.js 20.9 或更高版本及 npm。
+需要 Node.js 20.19 或更高版本及 npm；该版本要求同时覆盖 Next.js 运行和 jsdom 测试环境。
 
 ```bash
 npm ci
@@ -24,7 +24,7 @@ npm run build
 
 复制 `.env.example` 可以查看完整配置。`APP_ENV` 使用 `development`、`test` 或 `production`，`ENABLE_CONVERSATION_DEBUG=true` 用于显式开启对话调试浮动球。调试面板只有在 `APP_ENV` 为 `development` 或 `test` 且开关为 `true` 时才挂载；`production` 即使误设开关也会强制关闭。`NEXT_PUBLIC_API_BASE_URL` 会进入浏览器构建产物，不能在任何 `NEXT_PUBLIC_` 变量中保存密钥。
 
-浮动球提供消息插入、长文本、Markdown、批量消息、清空状态，以及阻止 SSE、部分回复后断流、缺少完成事件和慢速流等场景。故障模拟发生在浏览器端，不修改后端接口，也不代表模型供应商已经停止计算或计费。
+浮动球提供消息插入、长文本、Markdown、批量消息、清空状态，以及阻止 SSE、部分回复后断流、缺少完成事件、慢速流、配置缺失、鉴权失败和模型限流等场景。故障模拟发生在浏览器端，不修改后端接口，也不代表模型供应商已经停止计算或计费。
 
 调试工具代码保留在 `master` 及其派生分支中，确保从主分支创建的本地开发分支可以使用。是否显示只由运行环境门禁决定：本机使用 `APP_ENV=development`，测试服务器使用 `APP_ENV=test`，正式服务器使用 `APP_ENV=production`。
 
@@ -33,6 +33,8 @@ npm run build
 - 桌面频道页面与窄屏纵向布局
 - 消息输入、Enter 发送和 Shift + Enter 换行
 - 真实流式回复、停止生成和新建对话
+- 失败时保留部分回答，支持重试与重新生成
+- 区分配置、鉴权、模型、限流、超时、网络和断流错误
 - Markdown 回复安全渲染
 - 对话区域独立状态和可替换的回复提供器
 - 仅限开发与测试环境的对话调试浮动球和流式故障模拟
@@ -56,4 +58,6 @@ public/                  可直接访问的静态资源
 
 ## 前后端连接
 
-后端位于独立仓库 `echo-nook-api`。`http-reply-provider.ts` 负责 `fetch`、SSE 解析及后端错误处理；`use-conversation.ts` 管理消息状态和停止操作，页面组件不直接调用接口。`NEXT_PUBLIC_API_BASE_URL` 可覆盖默认后端地址。`demo-reply-provider.ts` 保留为离线演示实现，目前页面不使用它。
+后端位于独立仓库 `echo-nook-api`。`http-reply-provider.ts` 负责 `fetch`、SSE 解析、上下文构造及后端错误处理；`use-conversation.ts` 管理消息状态、停止、重试和重新生成，页面组件不直接调用接口。`NEXT_PUBLIC_API_BASE_URL` 可覆盖默认后端地址。`demo-reply-provider.ts` 保留为离线演示实现，目前页面不使用它。
+
+运行 `npm test` 执行对话 Hook、上下文裁剪和流取消测试；提交前同时运行 `npm run lint` 与 `npm run build`。
