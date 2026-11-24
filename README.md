@@ -1,6 +1,6 @@
 # EchoNook Web
 
-EchoNook 是一个面向桌面浏览器的虚拟陪伴频道。当前仓库是独立的前端项目，基于 Next.js、React、TypeScript 和 Tailwind CSS。第一版提供频道场景、文字对话界面，以及连接 FastAPI 服务端的可停止流式回复。会话保存、语音和虚拟人物将在后续迭代中接入。
+EchoNook 是一个面向桌面浏览器的虚拟陪伴频道。当前仓库是独立的前端项目，基于 Next.js、React、TypeScript 和 Tailwind CSS。当前版本提供频道场景、文字对话界面、连接 FastAPI 的可停止流式回复，以及由服务端数据库保存的历史会话。语音和虚拟人物将在后续迭代中接入。
 
 ## 本地运行
 
@@ -18,7 +18,7 @@ npm run lint
 npm run build
 ```
 
-输入文字后，前端调用服务端 `/api/v1/conversations/messages:stream` 并逐段显示回复；刷新页面会清空当前对话。服务端的 `FRONTEND_ORIGIN` 应与浏览器访问前端的地址一致。
+输入文字后，前端调用服务端 `/api/v1/conversations/{conversation_id}/messages:stream` 并逐段显示回复。首次发送前如果没有活动会话，前端会先创建会话；刷新页面会读取服务端会话列表并打开最近会话。服务端的 `FRONTEND_ORIGIN` 应与浏览器访问前端的地址一致。
 
 ## 环境与对话调试
 
@@ -33,7 +33,9 @@ npm run build
 - 桌面频道页面与窄屏纵向布局
 - 消息输入、Enter 发送和 Shift + Enter 换行
 - 真实流式回复、停止生成和新建对话
-- 失败时保留部分回答，支持重试与重新生成
+- 会话列表、新建、切换、删除及最近消息恢复
+- 使用服务端数据库历史继续对话，浏览器不再提交历史上下文
+- 失败时保留部分回答，可把原问题作为新回合再次提问
 - 区分配置、鉴权、模型、限流、超时、网络和断流错误
 - Markdown 回复安全渲染
 - 对话区域独立状态和可替换的回复提供器
@@ -58,6 +60,8 @@ public/                  可直接访问的静态资源
 
 ## 前后端连接
 
-后端位于独立仓库 `echo-nook-api`。`http-reply-provider.ts` 负责 `fetch`、SSE 解析、上下文构造及后端错误处理；`use-conversation.ts` 管理消息状态、停止、重试和重新生成，页面组件不直接调用接口。`NEXT_PUBLIC_API_BASE_URL` 可覆盖默认后端地址。`demo-reply-provider.ts` 保留为离线演示实现，目前页面不使用它。
+后端位于独立仓库 `echo-nook-api`。`conversation-api.ts` 负责会话列表、创建、消息读取和删除；`http-reply-provider.ts` 负责持久化流式接口、SSE 解析和后端错误处理；`use-conversation.ts` 管理活动会话、消息状态、停止、切换隔离和再次提问，页面组件不直接调用接口。历史上下文由服务端数据库构造，前端只提交本次输入。`NEXT_PUBLIC_API_BASE_URL` 可覆盖默认后端地址。`demo-reply-provider.ts` 保留为离线演示实现，目前页面不使用它。
 
-运行 `npm test` 执行对话 Hook、上下文裁剪和流取消测试；提交前同时运行 `npm run lint` 与 `npm run build`。
+运行 `npm test` 执行会话 API 映射、对话 Hook、SSE 解析、切换隔离和流取消测试；提交前同时运行 `npm run lint` 与 `npm run build`。
+
+当前完成路线图 S3-1。刷新后会自动打开服务端排序最靠前的会话；通过 URL 精确恢复指定会话、向上加载超过 100 条的更早消息以及阅读时的滚动跟随优化，分别安排在 S3-2、S3-3 和 S3-4。

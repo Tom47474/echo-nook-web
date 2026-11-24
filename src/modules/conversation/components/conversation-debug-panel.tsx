@@ -46,8 +46,7 @@ export function ConversationDebugPanel({ debug, busy }: { debug: DebugActions; b
             <button type="button" disabled={busy} className={actionClass} onClick={() => debug.insertMessage("assistant", "## Markdown 测试\n\n- 列表项目\n- `inline code`\n\n| 字段 | 值 |\n| --- | --- |\n| 状态 | 正常 |")}>Markdown 回复</button>
             <button type="button" disabled={busy} className={actionClass} onClick={() => debug.insertMessage("assistant", "这是一段用于检查换行、滚动和消息气泡宽度的长文本。".repeat(30))}>长回复</button>
             <button type="button" disabled={busy} className={actionClass} onClick={() => {
-              // A burst of messages exposes ordering and auto-scroll problems
-              // without requiring the backend or consuming model quota.
+              // 批量本地消息可检查顺序和自动滚动，不调用后端，也不消耗模型额度。
               for (let index = 1; index <= 30; index += 1) {
                 debug.insertMessage(index % 2 === 0 ? "assistant" : "user", `批量调试消息 ${index}/30`);
               }

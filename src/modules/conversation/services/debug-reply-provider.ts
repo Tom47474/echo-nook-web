@@ -19,13 +19,12 @@ const sleep = (duration: number, signal: AbortSignal) => new Promise<void>((reso
 });
 
 /**
- * Wraps the real provider with deterministic browser-side faults. This module
- * never changes the HTTP contract and is mounted only after the server-side
- * environment gate has explicitly enabled conversation debugging.
+ * 用可重复的浏览器端故障包装真实 Provider。这里只改变事件转发行为，
+ * 不改变服务端 HTTP 协议，并且只有通过服务端环境门禁后才会被页面挂载。
  */
 export function createDebugReplyProvider(source: ReplyProvider, scenario: ConversationDebugScenario): ReplyProvider {
   return {
-    async *streamReply(history, signal) {
+    async *streamReply(conversationId, message, signal) {
       const simulatedProviderErrors = {
         "provider-not-configured": createConversationError("provider_not_configured", "[调试] 服务端模型配置缺失。"),
         "provider-auth-failed": createConversationError("provider_auth_failed", "[调试] 模型服务鉴权失败。"),
@@ -38,15 +37,15 @@ export function createDebugReplyProvider(source: ReplyProvider, scenario: Conver
         throw new ConversationRequestError(createConversationError("network_error", "[调试] 已在发送前阻止 SSE 请求。"));
       }
       if (scenario === "missing-completion") {
-        yield "这是用于测试缺少完成事件的模拟回复。";
+        yield { type: "delta" as const, text: "这是用于测试缺少完成事件的模拟回复。" };
         throw new ConversationRequestError(createConversationError("stream_interrupted", "回复连接意外中断，请重试。（调试：未收到完成事件）"));
       }
 
       let receivedLength = 0;
-      for await (const part of source.streamReply(history, signal)) {
+      for await (const event of source.streamReply(conversationId, message, signal)) {
         if (scenario === "slow") await sleep(800, signal);
-        receivedLength += part.length;
-        yield part;
+        if (event.type === "delta") receivedLength += event.text.length;
+        yield event;
         if (scenario === "interrupt" && receivedLength >= 12) {
           throw new ConversationRequestError(createConversationError("stream_interrupted", "[调试] SSE 在收到部分消息后中断。"));
         }

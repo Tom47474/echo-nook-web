@@ -2,7 +2,7 @@
 
 ## 项目目标
 
-本仓库只负责 EchoNook 的浏览器界面。当前版本实现“用户输入 → FastAPI 流式回复 → 页面展示”的前后端闭环。语音、虚拟人物、背景音乐和知识库暂未实现。
+本仓库只负责 EchoNook 的浏览器界面。当前版本实现“服务端会话列表 → 数据库消息恢复 → 用户输入 → FastAPI 持久化流式回复 → 页面展示”的前后端闭环。语音、虚拟人物、背景音乐和知识库暂未实现。
 
 本机服务端地址配置在仓库根目录的 `.env.local`：`NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`。该变量会进入浏览器代码，只能放可公开的地址，不能放 API Key。修改后重启前端；服务端同时需要把 `FRONTEND_ORIGIN` 设为前端实际访问地址。环境变量模板见 `.env.example`。
 
@@ -13,10 +13,10 @@
 | `src/app/` | Next.js App Router 入口。`page.tsx` 组装首页，`layout.tsx` 设置页面元数据和根结构，`globals.css` 定义全局基础样式。这里不写对话业务逻辑。 |
 | `src/modules/channel/` | 频道展示模块。`components/` 存放页面结构、页头和场景。`index.ts` 是模块公开入口。以后可在此组装角色与背景场景。 |
 | `src/modules/conversation/` | 对话业务模块。封装消息展示、输入、状态和回复来源。`index.ts` 只导出外部需要的组件。 |
-| `src/modules/conversation/components/` | 对话界面。`conversation-panel.tsx` 组装消息列表和输入，`message-list.tsx` 管理列表滚动与空状态，`message-item.tsx` 显示单条消息，`message-input.tsx` 处理输入和键盘操作。 |
-| `src/modules/conversation/hooks/` | `use-conversation.ts` 管理发送、流式追加、失败保留、停止、重试、重新生成及新对话。它是 UI 与回复服务之间的协调层。 |
-| `src/modules/conversation/model/` | `types.ts` 定义消息、回合、状态和错误类型；`conversation-error.ts` 统一错误码、是否可重试及异常转换。以后后端 DTO 类型应另放在对话模块的 `api/` 中，经 mapper 转为此处类型。 |
-| `src/modules/conversation/services/` | `reply-provider.ts` 定义回复接口；`http-reply-provider.ts` 发送请求并解析 SSE；`demo-reply-provider.ts` 保留作离线演示。 |
+| `src/modules/conversation/components/` | 对话界面。`conversation-panel.tsx` 组装会话列表、消息列表和输入，`conversation-list.tsx` 负责新建、切换和删除入口，其他组件负责消息、输入和滚动。 |
+| `src/modules/conversation/hooks/` | `use-conversation.ts` 管理会话初始化、新建、切换、删除、消息恢复、发送、流式追加、失败保留和停止。它是 UI 与服务之间的协调层。 |
+| `src/modules/conversation/model/` | `types.ts` 定义消息、回合、会话、状态和错误类型；`conversation-error.ts` 统一错误码、是否可再次提问及异常转换。后端 DTO 保留在 `services/conversation-api.ts` 的适配边界内，经 mapper 转为此处类型。 |
+| `src/modules/conversation/services/` | `conversation-api.ts` 适配会话 REST API 和 DTO；`reply-provider.ts` 定义流事件接口；`http-reply-provider.ts` 调用持久化流式接口并解析 SSE；`demo-reply-provider.ts` 保留作离线演示。 |
 | `src/modules/conversation/components/conversation-debug-panel.tsx` | 仅在受控环境挂载的调试浮动球，提供消息注入、清空和故障场景选择。 |
 | `src/modules/conversation/services/debug-reply-provider.ts` | 包装真实回复 Provider，在浏览器端制造阻止请求、断流、缺少完成事件、慢速流和模型服务错误。 |
 | `src/shared/ui/` | 按钮等无业务含义的复用组件。不能依赖 `modules/`。 |
@@ -34,9 +34,10 @@
 | `src/modules/channel/components/channel-page.tsx` | 频道页面布局，组合场景和对话模块。 |
 | `src/modules/channel/components/scene-panel.tsx` | 当前的静态场景占位。 |
 | `src/modules/conversation/components/conversation-panel.tsx` | 对话模块的客户端入口。 |
-| `src/modules/conversation/hooks/use-conversation.ts` | 管理消息、回合、生成状态、取消、失败保留、重试和重新生成。 |
+| `src/modules/conversation/hooks/use-conversation.ts` | 管理活动会话、消息恢复、生成状态、取消、失败保留，以及切换会话时的竞态隔离。 |
+| `src/modules/conversation/services/conversation-api.ts` | 调用会话创建、列表、消息查询和删除接口，把后端 snake_case DTO 映射为前端模型。 |
 | `src/modules/conversation/services/reply-provider.ts` | 约定流式回复的接口。 |
-| `src/modules/conversation/services/http-reply-provider.ts` | 按完整回合构造最近 20 条历史，解析流事件和错误码，并在提前退出时取消响应读取器。 |
+| `src/modules/conversation/services/http-reply-provider.ts` | 只提交会话 ID 和本次输入，解析 `started/delta/completed/failed` 流事件，并在提前退出时取消响应读取器。 |
 | `src/modules/conversation/services/demo-reply-provider.ts` | 离线演示文本实现，目前未接入页面。 |
 | `src/shared/ui/button/index.tsx` | 通用按钮。 |
 | `src/shared/lib/cn.ts` | 合并条件样式和 Tailwind 类名。 |
@@ -54,17 +55,21 @@ Next.js 页面默认保持服务端组件；需要事件与状态的 `Conversati
 
 ## 数据流
 
-1. `MessageInput` 把文本交给 `useConversation`。
-2. Hook 立即加入用户消息和空的助手消息。
-3. `HttpReplyProvider` 请求 FastAPI，按 SSE 事件逐段返回文本，Hook 更新助手消息。
-4. 正常完成时助手消息标记为 `completed`；失败时保留已有文本并标记为 `failed`，同时保存结构化错误。
-5. `MessageList` 展示消息；用户可以停止、重试失败或取消的最新回复，也可以重新生成最新的完整回复。
+1. 页面启动后，`conversationApi` 读取会话列表，并加载最近会话的最新 100 条消息。
+2. 新建或切换会话时，Hook 先取消旧 SSE，再更新活动会话并读取对应数据库消息。
+3. `MessageInput` 把文本交给 `useConversation`；没有活动会话时先创建服务端会话。
+4. Hook 乐观加入用户消息和空助手消息，`HttpReplyProvider` 只提交会话 ID 和本次输入。
+5. 收到 `message.started` 后，用服务端 UUID 和 sequence 替换本地临时 ID；`message.delta` 逐段追加正文。
+6. 正常完成时标记为 `completed`；失败时保留已有文本并保存结构化错误；停止时标记为 `cancelled`。
+7. 流结束后刷新会话列表，使服务端更新过的活跃会话回到顶部。
 
 调试启用时，Hook 在每次发送开始时记录当前故障场景，并用 `DebugReplyProvider` 包装 HTTP Provider。一次请求期间更改场景不会改变已经开始的流。插入消息和清空操作只修改浏览器内存，不调用服务端。
 
-当前页面使用 `HttpReplyProvider`。本次输入单独作为 `message` 发送，历史按 `turnId` 保持完整回合并限制在 20 条以内。完成回复原样进入上下文；失败或取消但已有内容的回复附加内部“未完整生成”标记后进入后续上下文；空的失败或取消回复只保留对应用户消息。该标记只发给模型，不修改界面正文。
+当前页面使用 `HttpReplyProvider`。浏览器只向 `/api/v1/conversations/{id}/messages:stream` 发送本次 `message`，历史选择、完整回合裁剪和中断标记全部由服务端处理，客户端本地调试消息不会进入真实模型上下文。
 
-重试和重新生成只允许操作最新的真实助手回复，复用原用户消息、原助手消息 ID 和回合 ID，清空旧助手正文后原地生成，因此不会重复插入用户消息。配置缺失、鉴权失败和模型不可用属于不可直接重试错误；网络、限流、超时、生成失败及断流允许重试。停止操作通过 `AbortController` 取消请求，Hook 使用同步消息引用避免停止后立即发送恢复旧状态。刷新页面后记录仍不会保留。
+服务端当前没有覆盖旧回复的重新生成接口，因此“再次提问”会把原问题作为一个新回合追加，保证界面与数据库记录一致。配置缺失、鉴权失败和模型不可用不可直接再次提问；网络、限流、超时、生成失败及断流允许操作。停止通过 `AbortController` 取消请求。切换会话还会递增生成版本并校验活动会话 ID，即使旧异步流迟到，也不能写入新会话。刷新后自动打开最近会话；URL 指定恢复将在 S3-2 完成。
+
+S3-1 的消息查询暂时使用 `limit=100` 加载最近记录。服务端已经提供 `before_sequence` 游标，前端在 S3-3 接入向上分页，并保持用户当前阅读位置。
 
 ## 环境门禁
 
@@ -88,4 +93,4 @@ Next.js 页面默认保持服务端组件；需要事件与状态的 `Conversati
 
 ## 验收
 
-先启动 FastAPI，再运行 `npm run dev`，在首页输入文字，确认真实回复逐段显示、停止按钮有效且新对话可清空记录。开启调试时检查部分内容后断流会保留正文并显示重试、不可重试错误不显示重试、停止后可立即发送，以及重新生成不会增加用户消息。执行 `npm test`、`npm run lint` 和 `npm run build`。正式构建需要额外以 `APP_ENV=production ENABLE_CONVERSATION_DEBUG=true` 验证误设开关时仍不挂载浮动球。
+先启动 FastAPI，再运行 `npm run dev`，确认会话列表可加载，新建、切换、删除与数据库一致，切换时旧流停止且不污染新会话，刷新后最近会话和消息能够恢复。开启调试时检查部分内容后断流会保留正文、不可重试错误不显示再次提问、停止后可立即发送。执行 `npm test`、`npm run lint` 和 `npm run build`。正式构建需要额外以 `APP_ENV=production ENABLE_CONVERSATION_DEBUG=true` 验证误设开关时仍不挂载浮动球。

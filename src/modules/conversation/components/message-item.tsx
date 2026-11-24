@@ -8,7 +8,8 @@ export function MessageItem({ message, busy, canRetry, onRetry }: { message: Mes
   const isUser = message.role === "user";
   const showRetry = !isUser && canRetry && message.status !== "streaming"
     && (message.status !== "failed" || message.error?.retryable === true);
-  const retryLabel = message.status === "failed" ? "重试" : "重新生成";
+  // 当前服务端不覆盖旧消息，“再次提问”会新增一个可审计的持久化回合。
+  const retryLabel = "再次提问";
   return (
     <article className={`mb-6 flex flex-col ${isUser ? "items-end" : "items-start"}`}>
       <span className="mb-2 text-xs text-white/40">{isUser ? "你" : "Echo"}</span>

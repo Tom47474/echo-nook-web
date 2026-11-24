@@ -3,68 +3,114 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConversationRequestError, createConversationError } from "../model/conversation-error";
-import type { Message } from "../model/types";
+import type { ConversationSummary, Message } from "../model/types";
+import type { ReplyStreamEvent } from "../services/reply-provider";
 import { useConversation } from "./use-conversation";
 
-const providerState = vi.hoisted(() => ({
-  streamReply: undefined as undefined | ((history: Message[], signal: AbortSignal) => AsyncIterable<string>),
+const state = vi.hoisted(() => ({
+  conversations: [] as ConversationSummary[],
+  messages: new Map<string, Message[]>(),
+  streamReply: undefined as undefined | ((conversationId: string, message: string, signal: AbortSignal) => AsyncIterable<ReplyStreamEvent>),
+  delete: vi.fn(),
+}));
+
+vi.mock("../services/conversation-api", () => ({
+  conversationApi: {
+    list: vi.fn(async () => state.conversations),
+    messages: vi.fn(async (conversationId: string) => state.messages.get(conversationId) ?? []),
+    create: vi.fn(async () => ({ id: "new-conversation", title: "新对话", createdAt: "2026-11-24", updatedAt: "2026-11-24" })),
+    delete: (conversationId: string) => state.delete(conversationId),
+  },
 }));
 
 vi.mock("../services/http-reply-provider", () => ({
   replyProvider: {
-    streamReply: (history: Message[], signal: AbortSignal) => providerState.streamReply?.(history, signal)
-      ?? (async function* empty() {})(),
+    streamReply: (conversationId: string, message: string, signal: AbortSignal) => state.streamReply?.(conversationId, message, signal)
+      ?? (async function* empty() { yield { type: "completed" as const }; })(),
   },
 }));
 
+const conversationA: ConversationSummary = {
+  id: "conversation-a",
+  title: "会话 A",
+  createdAt: "2026-11-24T00:00:00Z",
+  updatedAt: "2026-11-24T00:00:00Z",
+};
+
+const conversationB: ConversationSummary = {
+  id: "conversation-b",
+  title: "会话 B",
+  createdAt: "2026-11-24T00:00:00Z",
+  updatedAt: "2026-11-24T00:00:00Z",
+};
+
+async function renderLoadedHook() {
+  const hook = renderHook(() => useConversation());
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  return hook;
+}
+
 describe("useConversation", () => {
   beforeEach(() => {
-    providerState.streamReply = undefined;
+    state.conversations = [conversationA];
+    state.messages = new Map([[conversationA.id, []]]);
+    state.streamReply = undefined;
+    state.delete.mockReset().mockResolvedValue(undefined);
   });
 
-  it("keeps a partial reply and its retryable error", async () => {
-    providerState.streamReply = async function* stream() {
-      yield "已经生成的部分";
+  it("loads the newest server conversation and its messages", async () => {
+    const stored: Message = {
+      id: "stored-user",
+      turnId: "stored-user",
+      conversationId: conversationA.id,
+      sequence: 0,
+      role: "user",
+      content: "数据库消息",
+      status: "completed",
+    };
+    state.messages.set(conversationA.id, [stored]);
+
+    const { result } = await renderLoadedHook();
+
+    expect(result.current.activeConversationId).toBe(conversationA.id);
+    expect(result.current.messages).toEqual([stored]);
+  });
+
+  it("replaces optimistic ids from message.started and keeps a partial failure", async () => {
+    state.streamReply = async function* stream() {
+      yield {
+        type: "started",
+        userMessageId: "server-user",
+        assistantMessageId: "server-assistant",
+        userSequence: 0,
+        assistantSequence: 1,
+      };
+      yield { type: "delta", text: "已经生成的部分" };
       throw new ConversationRequestError(createConversationError("stream_interrupted", "连接中断"));
     };
-    const { result } = renderHook(() => useConversation());
+    const { result } = await renderLoadedHook();
 
     await act(async () => { await result.current.send("测试问题"); });
 
     expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages[0]).toMatchObject({ id: "server-user", sequence: 0 });
     expect(result.current.messages[1]).toMatchObject({
-      role: "assistant",
+      id: "server-assistant",
+      sequence: 1,
       content: "已经生成的部分",
       status: "failed",
       error: { code: "stream_interrupted", retryable: true },
     });
   });
 
-  it("retries in place without duplicating the user message", async () => {
-    providerState.streamReply = async function* failedStream() {
-      yield "旧内容";
-      throw new ConversationRequestError(createConversationError("generation_failed", "临时失败"));
-    };
-    const { result } = renderHook(() => useConversation());
-    await act(async () => { await result.current.send("原问题"); });
-    const assistantId = result.current.messages[1].id;
-
-    providerState.streamReply = async function* successfulStream() { yield "新的完整回答"; };
-    await act(async () => { await result.current.retry(assistantId); });
-
-    expect(result.current.messages).toHaveLength(2);
-    expect(result.current.messages[0]).toMatchObject({ role: "user", content: "原问题" });
-    expect(result.current.messages[1]).toMatchObject({ id: assistantId, content: "新的完整回答", status: "completed" });
-  });
-
   it("keeps received text and marks the reply cancelled when stopped", async () => {
-    providerState.streamReply = async function* cancellableStream(_history, signal) {
-      yield "停止前的内容";
+    state.streamReply = async function* stream(_conversationId, _message, signal) {
+      yield { type: "delta", text: "停止前的内容" };
       await new Promise<void>((_resolve, reject) => {
         signal.addEventListener("abort", () => reject(new DOMException("已停止", "AbortError")), { once: true });
       });
     };
-    const { result } = renderHook(() => useConversation());
+    const { result } = await renderLoadedHook();
     let sending!: Promise<boolean>;
 
     act(() => { sending = result.current.send("需要停止的问题"); });
@@ -76,48 +122,47 @@ describe("useConversation", () => {
     expect(result.current.status).toBe("idle");
   });
 
-  it("can start a new turn immediately after stopping without restoring stale state", async () => {
-    let callCount = 0;
-    providerState.streamReply = async function* stream(_history, signal) {
-      callCount += 1;
-      if (callCount === 1) {
-        yield "第一条的部分内容";
-        await new Promise<void>((_resolve, reject) => {
-          signal.addEventListener("abort", () => reject(new DOMException("已停止", "AbortError")), { once: true });
-        });
-        return;
-      }
-      yield "第二条的完整回答";
+  it("aborts the old stream when switching and ignores its late result", async () => {
+    state.conversations = [conversationA, conversationB];
+    const targetMessage: Message = {
+      id: "b-user",
+      turnId: "b-user",
+      conversationId: conversationB.id,
+      sequence: 0,
+      role: "user",
+      content: "B 的历史",
+      status: "completed",
     };
-    const { result } = renderHook(() => useConversation());
-    let firstSending!: Promise<boolean>;
-    let secondSending!: Promise<boolean>;
+    state.messages.set(conversationB.id, [targetMessage]);
+    let releaseOld!: () => void;
+    state.streamReply = async function* stream() {
+      yield { type: "delta", text: "A 的部分回答" };
+      await new Promise<void>((resolve) => { releaseOld = resolve; });
+      yield { type: "delta", text: "不应进入 B" };
+      yield { type: "completed" };
+    };
+    const { result } = await renderLoadedHook();
+    let sending!: Promise<boolean>;
 
-    act(() => { firstSending = result.current.send("第一条问题"); });
-    await waitFor(() => expect(result.current.messages[1]?.content).toBe("第一条的部分内容"));
-    act(() => {
-      result.current.stop();
-      secondSending = result.current.send("第二条问题");
-    });
-    await act(async () => { await Promise.all([firstSending, secondSending]); });
+    act(() => { sending = result.current.send("A 的问题"); });
+    await waitFor(() => expect(result.current.messages[1]?.content).toBe("A 的部分回答"));
+    await act(async () => { await result.current.selectConversation(conversationB.id); });
+    act(() => { releaseOld(); });
+    await act(async () => { await sending; });
 
-    expect(result.current.messages).toHaveLength(4);
-    expect(result.current.messages[1].status).toBe("cancelled");
-    expect(result.current.messages[3]).toMatchObject({ content: "第二条的完整回答", status: "completed" });
+    expect(result.current.activeConversationId).toBe(conversationB.id);
+    expect(result.current.messages).toEqual([targetMessage]);
   });
 
-  it("does not retry configuration errors", async () => {
-    providerState.streamReply = async function* failedStream() {
-      throw new ConversationRequestError(createConversationError("provider_not_configured", "缺少配置"));
-    };
-    const { result } = renderHook(() => useConversation());
-    await act(async () => { await result.current.send("问题"); });
-    const assistant = result.current.messages[1];
+  it("deletes the active conversation and selects the next one", async () => {
+    state.conversations = [conversationA, conversationB];
+    state.messages.set(conversationB.id, []);
+    const { result } = await renderLoadedHook();
 
-    let accepted = true;
-    await act(async () => { accepted = await result.current.retry(assistant.id); });
+    await act(async () => { await result.current.deleteConversation(conversationA.id); });
 
-    expect(accepted).toBe(false);
-    expect(result.current.messages[1]).toMatchObject({ status: "failed", error: { retryable: false } });
+    expect(state.delete).toHaveBeenCalledWith(conversationA.id);
+    expect(result.current.conversations.map((item) => item.id)).toEqual([conversationB.id]);
+    expect(result.current.activeConversationId).toBe(conversationB.id);
   });
 });

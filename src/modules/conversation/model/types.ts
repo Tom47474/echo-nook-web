@@ -1,5 +1,5 @@
 export type MessageRole = "user" | "assistant";
-export type MessageStatus = "streaming" | "completed" | "cancelled" | "failed";
+export type MessageStatus = "pending" | "streaming" | "completed" | "cancelled" | "failed";
 
 export type ConversationErrorCode =
   | "network_error"
@@ -21,6 +21,8 @@ export interface ConversationError {
 export interface Message {
   id: string;
   turnId: string;
+  conversationId?: string;
+  sequence?: number;
   role: MessageRole;
   content: string;
   status: MessageStatus;
@@ -28,6 +30,13 @@ export interface Message {
 }
 
 export type ConversationStatus = "idle" | "streaming";
+
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export type ConversationDebugScenario =
   | "normal"
