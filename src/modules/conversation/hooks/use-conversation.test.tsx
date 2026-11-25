@@ -12,11 +12,13 @@ const state = vi.hoisted(() => ({
   messages: new Map<string, Message[]>(),
   streamReply: undefined as undefined | ((conversationId: string, message: string, signal: AbortSignal) => AsyncIterable<ReplyStreamEvent>),
   delete: vi.fn(),
+  get: vi.fn(),
 }));
 
 vi.mock("../services/conversation-api", () => ({
   conversationApi: {
     list: vi.fn(async () => state.conversations),
+    get: (conversationId: string) => state.get(conversationId),
     messages: vi.fn(async (conversationId: string) => state.messages.get(conversationId) ?? []),
     create: vi.fn(async () => ({ id: "new-conversation", title: "新对话", createdAt: "2026-11-24", updatedAt: "2026-11-24" })),
     delete: (conversationId: string) => state.delete(conversationId),
@@ -56,6 +58,8 @@ describe("useConversation", () => {
     state.messages = new Map([[conversationA.id, []]]);
     state.streamReply = undefined;
     state.delete.mockReset().mockResolvedValue(undefined);
+    state.get.mockReset().mockImplementation(async (id: string) => state.conversations.find((item) => item.id === id) ?? null);
+    window.history.replaceState(null, "", "/");
   });
 
   it("loads the newest server conversation and its messages", async () => {
@@ -164,5 +168,71 @@ describe("useConversation", () => {
     expect(state.delete).toHaveBeenCalledWith(conversationA.id);
     expect(result.current.conversations.map((item) => item.id)).toEqual([conversationB.id]);
     expect(result.current.activeConversationId).toBe(conversationB.id);
+    expect(new URL(window.location.href).searchParams.get("conversation")).toBe(conversationB.id);
+  });
+
+  it("restores a linked conversation even when it is absent from the first list page", async () => {
+    window.history.replaceState(null, "", `/?conversation=${conversationB.id}`);
+    state.get.mockResolvedValue(conversationB);
+    const stored: Message = { id: "b-user", turnId: "b-user", role: "user", content: "旧记录", status: "completed" };
+    state.messages.set(conversationB.id, [stored]);
+
+    const { result } = await renderLoadedHook();
+
+    expect(result.current.activeConversationId).toBe(conversationB.id);
+    expect(result.current.messages).toEqual([stored]);
+    expect(result.current.conversations.map((item) => item.id)).toContain(conversationB.id);
+  });
+
+  it("replaces a missing link with the newest conversation and shows a warning", async () => {
+    window.history.replaceState(null, "", "/?conversation=deleted-id&theme=dark#chat");
+    const { result } = await renderLoadedHook();
+
+    expect(result.current.activeConversationId).toBe(conversationA.id);
+    expect(result.current.operationError).toContain("不存在");
+    expect(window.location.search).toContain(`conversation=${conversationA.id}`);
+    expect(window.location.search).toContain("theme=dark");
+    expect(window.location.hash).toBe("#chat");
+  });
+
+  it("follows browser back navigation after switching conversations", async () => {
+    state.conversations = [conversationA, conversationB];
+    const { result } = await renderLoadedHook();
+    await act(async () => { await result.current.selectConversation(conversationB.id); });
+    expect(window.location.search).toContain(conversationB.id);
+
+    act(() => { window.history.replaceState(null, "", `/?conversation=${conversationA.id}`); window.dispatchEvent(new PopStateEvent("popstate")); });
+    await waitFor(() => expect(result.current.activeConversationId).toBe(conversationA.id));
+  });
+
+  it("keeps the deep link when its lookup fails instead of treating it as deleted", async () => {
+    window.history.replaceState(null, "", `/?conversation=${conversationB.id}`);
+    state.get.mockRejectedValue(new Error("服务暂时不可用"));
+
+    const { result } = await renderLoadedHook();
+
+    expect(result.current.activeConversationId).toBeNull();
+    expect(result.current.operationError).toContain("服务暂时不可用");
+    expect(window.location.search).toContain(conversationB.id);
+  });
+
+  it("ignores a late URL lookup after the user explicitly switches conversations", async () => {
+    state.conversations = [conversationA, conversationB];
+    const { result } = await renderLoadedHook();
+    let finishLookup!: (value: ConversationSummary) => void;
+    state.get.mockImplementation((id: string) => id === conversationB.id
+      ? new Promise<ConversationSummary>((resolve) => { finishLookup = resolve; })
+      : Promise.resolve(conversationA));
+
+    act(() => {
+      window.history.replaceState(null, "", `/?conversation=${conversationB.id}`);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await act(async () => { await result.current.selectConversation(conversationB.id); });
+    await act(async () => { await result.current.selectConversation(conversationA.id); });
+    await act(async () => { finishLookup(conversationB); });
+
+    expect(result.current.activeConversationId).toBe(conversationA.id);
+    expect(window.location.search).toContain(conversationA.id);
   });
 });

@@ -89,6 +89,14 @@ export const conversationApi = {
     return payload.items.map(mapConversation);
   },
 
+  async get(conversationId: string, signal?: AbortSignal): Promise<ConversationSummary | null> {
+    // 404 表示链接指向已删除的会话；422 表示 URL ID 格式错误。其他错误交给页面显示。
+    const response = await fetch(endpoint(`/conversations/${encodeURIComponent(conversationId)}`), { signal });
+    if (response.status === 404 || response.status === 422) return null;
+    await ensureOk(response, "加载指定会话失败。");
+    return mapConversation(await response.json() as ConversationDto);
+  },
+
   async create(title = "新对话"): Promise<ConversationSummary> {
     const response = await fetch(endpoint("/conversations"), {
       method: "POST",

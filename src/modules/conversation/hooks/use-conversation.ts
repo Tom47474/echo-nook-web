@@ -11,6 +11,7 @@ import type {
 import { conversationApi } from "../services/conversation-api";
 import { createDebugReplyProvider } from "../services/debug-reply-provider";
 import { replyProvider as httpReplyProvider } from "../services/http-reply-provider";
+import { readConversationId, writeConversationId } from "../services/conversation-url";
 
 type GenerationInput = {
   conversationId: string;
@@ -37,6 +38,7 @@ export function useConversation({ debugEnabled = false }: { debugEnabled?: boole
   const generationVersionRef = useRef(0);
   const loadVersionRef = useRef(0);
   const listVersionRef = useRef(0);
+  const navigationVersionRef = useRef(0);
   const activeRef = useRef(false);
   const creatingRef = useRef(false);
 
@@ -110,11 +112,35 @@ export function useConversation({ debugEnabled = false }: { debugEnabled?: boole
 
   const selectConversation = useCallback(async (conversationId: string) => {
     if (conversationId === activeConversationIdRef.current) return;
+    navigationVersionRef.current += 1;
     stop();
+    writeConversationId(conversationId, "push");
     setActiveConversation(conversationId);
     commitMessages([]);
     await loadConversation(conversationId);
   }, [commitMessages, loadConversation, setActiveConversation, stop]);
+
+  /** 解析直达链接；即使目标不在列表第一页，也通过单会话接口确认其存在。 */
+  const restoreFromUrl = useCallback(async (items: ConversationSummary[], signal?: AbortSignal) => {
+    const navigationVersion = ++navigationVersionRef.current;
+    const requestedId = readConversationId();
+    let target = requestedId ? await conversationApi.get(requestedId, signal) : null;
+    // 用户在单会话查询期间可能又点击了别处；晚到的直达结果不能覆盖新导航。
+    if (signal?.aborted || navigationVersion !== navigationVersionRef.current) return;
+    const missing = requestedId !== null && target === null;
+    if (!target) target = items[0] ?? null;
+    if (target && !items.some((item) => item.id === target.id)) {
+      commitConversations([target, ...items]);
+    }
+    // 无效/已删除链接回退最近会话，并把地址改成真实的活动会话。
+    if (requestedId !== target?.id) writeConversationId(target?.id ?? null, "replace");
+    stop();
+    setActiveConversation(target?.id ?? null);
+    commitMessages([]);
+    if (target) await loadConversation(target.id);
+    else setLoading(false);
+    if (missing && !signal?.aborted) setOperationError("链接中的会话不存在或 ID 无效，已打开最近会话。");
+  }, [commitConversations, commitMessages, loadConversation, setActiveConversation, stop]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -125,14 +151,9 @@ export function useConversation({ debugEnabled = false }: { debugEnabled?: boole
         const items = await conversationApi.list(controller.signal);
         if (controller.signal.aborted || listVersion !== listVersionRef.current) return;
         commitConversations(items);
-        if (items[0]) {
-          setActiveConversation(items[0].id);
-          await loadConversation(items[0].id);
-        } else {
-          setLoading(false);
-        }
+        await restoreFromUrl(items, controller.signal);
       } catch (cause) {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && listVersion === listVersionRef.current) {
           setOperationError(toConversationError(cause).message);
           setLoading(false);
         }
@@ -143,11 +164,28 @@ export function useConversation({ debugEnabled = false }: { debugEnabled?: boole
       loadControllerRef.current?.abort();
       controllerRef.current?.abort();
     };
-  }, [commitConversations, loadConversation, setActiveConversation]);
+  }, [commitConversations, restoreFromUrl]);
+
+  useEffect(() => {
+    const onHistoryChange = () => {
+      const navigationVersion = navigationVersionRef.current + 1;
+      // 浏览器后退/前进不触发 pushState；重新按 URL 恢复并隔离旧流。
+      void restoreFromUrl(conversationsRef.current).catch((cause) => {
+        if (navigationVersion !== navigationVersionRef.current) return;
+        // 查询失败时保留现有会话，并把地址恢复为页面实际正在展示的 ID。
+        writeConversationId(activeConversationIdRef.current, "replace");
+        setOperationError(toConversationError(cause).message);
+        setLoading(false);
+      });
+    };
+    window.addEventListener("popstate", onHistoryChange);
+    return () => window.removeEventListener("popstate", onHistoryChange);
+  }, [restoreFromUrl]);
 
   const createConversation = useCallback(async () => {
     if (creatingRef.current) return null;
     creatingRef.current = true;
+    navigationVersionRef.current += 1;
     stop();
     listVersionRef.current += 1;
     loadControllerRef.current?.abort();
@@ -157,6 +195,7 @@ export function useConversation({ debugEnabled = false }: { debugEnabled?: boole
     try {
       const created = await conversationApi.create();
       commitConversations([created, ...conversationsRef.current.filter((item) => item.id !== created.id)]);
+      writeConversationId(created.id, "push");
       setActiveConversation(created.id);
       commitMessages([]);
       return created.id;
@@ -170,6 +209,7 @@ export function useConversation({ debugEnabled = false }: { debugEnabled?: boole
   }, [commitConversations, commitMessages, setActiveConversation, stop]);
 
   const deleteConversation = useCallback(async (conversationId: string) => {
+    navigationVersionRef.current += 1;
     const deletingActive = activeConversationIdRef.current === conversationId;
     if (deletingActive) stop();
     listVersionRef.current += 1;
@@ -183,6 +223,7 @@ export function useConversation({ debugEnabled = false }: { debugEnabled?: boole
       loadControllerRef.current?.abort();
       loadVersionRef.current += 1;
       const next = remaining[0];
+      writeConversationId(next?.id ?? null, "replace");
       setActiveConversation(next?.id ?? null);
       commitMessages([]);
       if (next) await loadConversation(next.id);

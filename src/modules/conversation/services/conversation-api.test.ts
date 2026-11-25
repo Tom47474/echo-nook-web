@@ -75,4 +75,12 @@ describe("conversationApi", () => {
       { method: "DELETE" },
     );
   });
+
+  it("distinguishes missing direct links from request failures", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(new Response(null, { status: 503 })));
+
+    await expect(conversationApi.get("deleted-id")).resolves.toBeNull();
+    await expect(conversationApi.get("offline-id")).rejects.toThrow("加载指定会话失败");
+  });
 });
