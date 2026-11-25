@@ -38,6 +38,12 @@ export interface ConversationSummary {
   updatedAt: string;
 }
 
+export interface MessagePage {
+  items: Message[];
+  hasMore: boolean;
+  nextBeforeSequence: number | null;
+}
+
 export type ConversationDebugScenario =
   | "normal"
   | "block"

@@ -52,7 +52,10 @@ describe("conversationApi", () => {
       next_before_sequence: null,
     }), { status: 200 })));
 
-    const messages = await conversationApi.messages("conversation-1");
+    const page = await conversationApi.messages("conversation-1");
+    const messages = page.items;
+
+    expect(page).toMatchObject({ hasMore: false, nextBeforeSequence: null });
 
     expect(messages[0]).toMatchObject({ id: "user-1", turnId: "user-1", sequence: 2 });
     expect(messages[1]).toMatchObject({
@@ -82,5 +85,17 @@ describe("conversationApi", () => {
 
     await expect(conversationApi.get("deleted-id")).resolves.toBeNull();
     await expect(conversationApi.get("offline-id")).rejects.toThrow("加载指定会话失败");
+  });
+
+  it("passes before_sequence and maps the next cursor", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      items: [], limit: 50, has_more: true, next_before_sequence: 20,
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const page = await conversationApi.messages("conversation-1", undefined, 70);
+
+    expect(page).toEqual({ items: [], hasMore: true, nextBeforeSequence: 20 });
+    expect(fetchMock.mock.calls[0][0]).toContain("limit=50&before_sequence=70");
   });
 });

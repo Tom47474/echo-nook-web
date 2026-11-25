@@ -13,6 +13,10 @@ export function ConversationPanel({ debugEnabled = false }: { debugEnabled?: boo
     messages,
     status,
     loading,
+    loadingMore,
+    hasMore,
+    olderError,
+    loadOlder,
     operationError,
     send,
     retry,
@@ -36,7 +40,7 @@ export function ConversationPanel({ debugEnabled = false }: { debugEnabled?: boo
         onDelete={(conversationId) => void deleteConversation(conversationId)}
       />
       {operationError && <p role="alert" className="border-b border-red-200/10 bg-red-200/5 px-5 py-2 text-xs text-red-100/80">{operationError}</p>}
-      <MessageList messages={messages} status={status} onRetry={(messageId) => void retry(messageId)} />
+      <MessageList messages={messages} status={status} conversationId={activeConversationId} hasMore={hasMore} loadingMore={loadingMore} olderError={olderError} onLoadMore={loadOlder} onRetry={(messageId) => void retry(messageId)} />
       <MessageInput onSend={send} onStop={stop} busy={status === "streaming"} disabled={loading} />
       {debug && <ConversationDebugPanel debug={debug} busy={status === "streaming" || loading} />}
     </section>

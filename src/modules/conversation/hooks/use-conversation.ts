@@ -7,6 +7,7 @@ import type {
   ConversationStatus,
   ConversationSummary,
   Message,
+  MessagePage,
 } from "../model/types";
 import { conversationApi } from "../services/conversation-api";
 import { createDebugReplyProvider } from "../services/debug-reply-provider";
@@ -27,6 +28,9 @@ export function useConversation({ debugEnabled = false }: { debugEnabled?: boole
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus] = useState<ConversationStatus>("idle");
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [olderError, setOlderError] = useState<string | null>(null);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [debugScenario, setDebugScenario] = useState<ConversationDebugScenario>("normal");
 
@@ -35,6 +39,9 @@ export function useConversation({ debugEnabled = false }: { debugEnabled?: boole
   const messagesRef = useRef<Message[]>([]);
   const controllerRef = useRef<AbortController | null>(null);
   const loadControllerRef = useRef<AbortController | null>(null);
+  const olderControllerRef = useRef<AbortController | null>(null);
+  const cursorRef = useRef<number | null>(null);
+  const pagingRef = useRef(false);
   const generationVersionRef = useRef(0);
   const loadVersionRef = useRef(0);
   const listVersionRef = useRef(0);
@@ -74,6 +81,15 @@ export function useConversation({ debugEnabled = false }: { debugEnabled?: boole
       : item));
   }, [commitMessages]);
 
+  /** 合并分页边界上的回合：旧页若以用户结束，新页首条助手应归属该用户。 */
+  const stitchTurns = useCallback((items: Message[]) => {
+    let turnId = "";
+    return items.map((item) => {
+      if (item.role === "user") turnId = item.id;
+      return { ...item, turnId: turnId || item.id };
+    });
+  }, []);
+
   const refreshConversationList = useCallback(async () => {
     const version = listVersionRef.current;
     try {
@@ -88,15 +104,24 @@ export function useConversation({ debugEnabled = false }: { debugEnabled?: boole
   /** 加载一个会话的最近消息；版本号同时解决快速切换时响应乱序的问题。 */
   const loadConversation = useCallback(async (conversationId: string) => {
     loadControllerRef.current?.abort();
+    olderControllerRef.current?.abort();
+    olderControllerRef.current = null;
+    pagingRef.current = false;
+    cursorRef.current = null;
+    setHasMore(false);
+    setLoadingMore(false);
+    setOlderError(null);
     const controller = new AbortController();
     const version = ++loadVersionRef.current;
     loadControllerRef.current = controller;
     setLoading(true);
     setOperationError(null);
     try {
-      const loadedMessages = await conversationApi.messages(conversationId, controller.signal);
+      const page = await conversationApi.messages(conversationId, controller.signal);
       if (version === loadVersionRef.current && activeConversationIdRef.current === conversationId) {
-        commitMessages(loadedMessages);
+        commitMessages(stitchTurns(page.items));
+        cursorRef.current = page.nextBeforeSequence;
+        setHasMore(page.hasMore);
       }
     } catch (cause) {
       if (!controller.signal.aborted && version === loadVersionRef.current) {
@@ -108,7 +133,40 @@ export function useConversation({ debugEnabled = false }: { debugEnabled?: boole
         setLoading(false);
       }
     }
-  }, [commitMessages]);
+  }, [commitMessages, stitchTurns]);
+
+  /** 用服务端游标读取更早的一页；同一时间只允许一个分页请求。 */
+  const loadOlder = useCallback(async (): Promise<boolean> => {
+    const conversationId = activeConversationIdRef.current;
+    const beforeSequence = cursorRef.current;
+    if (!conversationId || beforeSequence === null || pagingRef.current || loading) return false;
+    pagingRef.current = true;
+    const version = loadVersionRef.current;
+    const controller = new AbortController();
+    olderControllerRef.current = controller;
+    setLoadingMore(true);
+    setOlderError(null);
+    try {
+      const page: MessagePage = await conversationApi.messages(conversationId, controller.signal, beforeSequence);
+      if (controller.signal.aborted || version !== loadVersionRef.current || activeConversationIdRef.current !== conversationId) return false;
+      // UUID 去重保证服务端页面与在途新消息并存时，屏幕不会重复展示同一条消息。
+      const existingIds = new Set(messagesRef.current.map((item) => item.id));
+      const older = page.items.filter((item) => !existingIds.has(item.id));
+      commitMessages(stitchTurns([...older, ...messagesRef.current]));
+      cursorRef.current = page.nextBeforeSequence;
+      setHasMore(page.hasMore);
+      return older.length > 0;
+    } catch (cause) {
+      if (!controller.signal.aborted && version === loadVersionRef.current) setOlderError(toConversationError(cause).message);
+      return false;
+    } finally {
+      if (olderControllerRef.current === controller) {
+        olderControllerRef.current = null;
+        pagingRef.current = false;
+        setLoadingMore(false);
+      }
+    }
+  }, [commitMessages, loading, stitchTurns]);
 
   const selectConversation = useCallback(async (conversationId: string) => {
     if (conversationId === activeConversationIdRef.current) return;
@@ -162,6 +220,7 @@ export function useConversation({ debugEnabled = false }: { debugEnabled?: boole
     return () => {
       controller.abort();
       loadControllerRef.current?.abort();
+      olderControllerRef.current?.abort();
       controllerRef.current?.abort();
     };
   }, [commitConversations, restoreFromUrl]);
@@ -189,6 +248,13 @@ export function useConversation({ debugEnabled = false }: { debugEnabled?: boole
     stop();
     listVersionRef.current += 1;
     loadControllerRef.current?.abort();
+    olderControllerRef.current?.abort();
+    olderControllerRef.current = null;
+    pagingRef.current = false;
+    cursorRef.current = null;
+    setHasMore(false);
+    setLoadingMore(false);
+    setOlderError(null);
     loadVersionRef.current += 1;
     setLoading(true);
     setOperationError(null);
@@ -221,6 +287,7 @@ export function useConversation({ debugEnabled = false }: { debugEnabled?: boole
       if (!deletingActive) return true;
 
       loadControllerRef.current?.abort();
+      olderControllerRef.current?.abort();
       loadVersionRef.current += 1;
       const next = remaining[0];
       writeConversationId(next?.id ?? null, "replace");
@@ -396,6 +463,10 @@ export function useConversation({ debugEnabled = false }: { debugEnabled?: boole
     messages,
     status,
     loading,
+    loadingMore,
+    hasMore,
+    olderError,
+    loadOlder,
     operationError,
     send,
     retry,

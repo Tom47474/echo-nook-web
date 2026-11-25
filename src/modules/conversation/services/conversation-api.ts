@@ -1,5 +1,5 @@
 import { createConversationError, ConversationRequestError, normalizeErrorCode } from "../model/conversation-error";
-import type { ConversationSummary, Message, MessageStatus } from "../model/types";
+import type { ConversationSummary, Message, MessagePage, MessageStatus } from "../model/types";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -21,7 +21,7 @@ type MessageDto = {
 };
 
 type ConversationListDto = { items: ConversationDto[] };
-type MessagePageDto = { items: MessageDto[] };
+type MessagePageDto = { items: MessageDto[]; has_more: boolean; next_before_sequence: number | null };
 
 function endpoint(path: string): string {
   return `${apiBaseUrl.replace(/\/$/, "")}/api/v1${path}`;
@@ -107,15 +107,21 @@ export const conversationApi = {
     return mapConversation(await response.json() as ConversationDto);
   },
 
-  async messages(conversationId: string, signal?: AbortSignal): Promise<Message[]> {
-    // S3-1 先读取最近 100 条；S3-3 再使用 before_sequence 实现向上翻页。
+  async messages(conversationId: string, signal?: AbortSignal, beforeSequence?: number): Promise<MessagePage> {
+    // 首页保留最近 100 条；更早的页面按服务端返回的 sequence 游标取 50 条。
+    const query = new URLSearchParams({ limit: beforeSequence === undefined ? "100" : "50" });
+    if (beforeSequence !== undefined) query.set("before_sequence", String(beforeSequence));
     const response = await fetch(
-      endpoint(`/conversations/${encodeURIComponent(conversationId)}/messages?limit=100`),
+      endpoint(`/conversations/${encodeURIComponent(conversationId)}/messages?${query}`),
       { signal },
     );
     await ensureOk(response, "加载会话消息失败。");
     const payload = await response.json() as MessagePageDto;
-    return mapMessages(payload.items);
+    return {
+      items: mapMessages(payload.items),
+      hasMore: payload.has_more,
+      nextBeforeSequence: payload.next_before_sequence,
+    };
   },
 
   async delete(conversationId: string): Promise<void> {

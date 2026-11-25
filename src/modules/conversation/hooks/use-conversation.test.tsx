@@ -3,13 +3,16 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConversationRequestError, createConversationError } from "../model/conversation-error";
-import type { ConversationSummary, Message } from "../model/types";
+import type { ConversationSummary, Message, MessagePage } from "../model/types";
 import type { ReplyStreamEvent } from "../services/reply-provider";
 import { useConversation } from "./use-conversation";
 
 const state = vi.hoisted(() => ({
   conversations: [] as ConversationSummary[],
   messages: new Map<string, Message[]>(),
+  messagePages: new Map<string, MessagePage>(),
+  messagesRequest: vi.fn(),
+  pageLoader: undefined as undefined | ((conversationId: string, beforeSequence?: number) => Promise<MessagePage>),
   streamReply: undefined as undefined | ((conversationId: string, message: string, signal: AbortSignal) => AsyncIterable<ReplyStreamEvent>),
   delete: vi.fn(),
   get: vi.fn(),
@@ -19,7 +22,11 @@ vi.mock("../services/conversation-api", () => ({
   conversationApi: {
     list: vi.fn(async () => state.conversations),
     get: (conversationId: string) => state.get(conversationId),
-    messages: vi.fn(async (conversationId: string) => state.messages.get(conversationId) ?? []),
+    messages: (conversationId: string, signal?: AbortSignal, beforeSequence?: number) => {
+      state.messagesRequest(conversationId, signal, beforeSequence);
+      return state.pageLoader?.(conversationId, beforeSequence) ?? Promise.resolve(state.messagePages.get(`${conversationId}:${beforeSequence ?? "latest"}`)
+        ?? { items: state.messages.get(conversationId) ?? [], hasMore: false, nextBeforeSequence: null });
+    },
     create: vi.fn(async () => ({ id: "new-conversation", title: "新对话", createdAt: "2026-11-24", updatedAt: "2026-11-24" })),
     delete: (conversationId: string) => state.delete(conversationId),
   },
@@ -56,6 +63,9 @@ describe("useConversation", () => {
   beforeEach(() => {
     state.conversations = [conversationA];
     state.messages = new Map([[conversationA.id, []]]);
+    state.messagePages = new Map();
+    state.pageLoader = undefined;
+    state.messagesRequest.mockReset();
     state.streamReply = undefined;
     state.delete.mockReset().mockResolvedValue(undefined);
     state.get.mockReset().mockImplementation(async (id: string) => state.conversations.find((item) => item.id === id) ?? null);
@@ -234,5 +244,40 @@ describe("useConversation", () => {
 
     expect(result.current.activeConversationId).toBe(conversationA.id);
     expect(window.location.search).toContain(conversationA.id);
+  });
+
+  it("prepends older pages without duplicates and uses the returned sequence cursor", async () => {
+    const msg = (sequence: number): Message => ({ id: `m-${sequence}`, turnId: `m-${sequence}`, role: "user", content: `消息 ${sequence}`, status: "completed", sequence });
+    state.messagePages.set(`${conversationA.id}:latest`, { items: [msg(3), msg(4)], hasMore: true, nextBeforeSequence: 3 });
+    state.messagePages.set(`${conversationA.id}:3`, { items: [msg(1), msg(2), msg(3)], hasMore: false, nextBeforeSequence: null });
+    const { result } = await renderLoadedHook();
+
+    await act(async () => { expect(await result.current.loadOlder()).toBe(true); });
+
+    expect(result.current.messages.map((item) => item.sequence)).toEqual([1, 2, 3, 4]);
+    expect(result.current.hasMore).toBe(false);
+    expect(state.messagesRequest).toHaveBeenLastCalledWith(conversationA.id, expect.any(AbortSignal), 3);
+    await act(async () => { expect(await result.current.loadOlder()).toBe(false); });
+    expect(state.messagesRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it("discards an older page that returns after switching conversations", async () => {
+    state.conversations = [conversationA, conversationB];
+    const msg: Message = { id: "a-5", turnId: "a-5", role: "user", content: "A 最新", status: "completed", sequence: 5 };
+    state.messagePages.set(`${conversationA.id}:latest`, { items: [msg], hasMore: true, nextBeforeSequence: 5 });
+    let finishOlder!: (page: MessagePage) => void;
+    state.pageLoader = (id, before) => before === 5
+      ? new Promise<MessagePage>((resolve) => { finishOlder = resolve; })
+      : Promise.resolve(state.messagePages.get(`${id}:latest`) ?? { items: [], hasMore: false, nextBeforeSequence: null });
+    const { result } = await renderLoadedHook();
+    let pending!: Promise<boolean>;
+
+    act(() => { pending = result.current.loadOlder(); });
+    await act(async () => { await result.current.selectConversation(conversationB.id); });
+    await act(async () => { finishOlder({ items: [{ ...msg, id: "a-4", sequence: 4 }], hasMore: false, nextBeforeSequence: null }); await pending; });
+
+    expect(result.current.activeConversationId).toBe(conversationB.id);
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.loadingMore).toBe(false);
   });
 });
