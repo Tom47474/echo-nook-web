@@ -73,7 +73,7 @@ S3-2 增加 `conversation-url.ts`：新建/切换使用 `history.pushState` 写�
 
 S3-3 首次读取最近 100 条消息；响应的 `has_more` 和 `next_before_sequence` 被适配为 `hasMore/nextBeforeSequence`。用户滚到顶部或点击按钮时，Hook 以游标每次读取更早 50 条，按消息 ID 去重并补到现有消息前；切换会话时取消旧分页并用加载版本阻止迟到结果污染新会话。消息列表在请求前记录 `scrollHeight/scrollTop`，旧消息渲染后按新增高度补偿 `scrollTop`，保持用户阅读的那一条在原位置。失败显示可重试提示，`hasMore=false` 时不再请求。
 
-S3-4 在消息列表内部用 `followingRef` 记录跟随意图。滚动时按 `scrollHeight - clientHeight - scrollTop <= 80px` 判定是否接近底部；远离底部暂停自动滚动并显示“回到底部”，手动滚回或点击按钮后恢复。消息更新后的 `useLayoutEffect` 先处理 S3-3 的向上分页高度补偿，随后才根据跟随状态决定是否滚到底部；切换会话重置为跟随新会话最新消息。按钮位于滚动容器外层，不改变消息列表的 `scrollHeight`。动态媒体异步加载后的额外高度变化暂未专项处理。
+S3-4 在消息列表内部用 `followingRef` 记录跟随意图。滚动时按 `scrollHeight - clientHeight - scrollTop <= 80px` 判定是否接近底部；远离底部暂停自动滚动并显示向下箭头，手动滚回或点击箭头后恢复。箭头位于消息区水平居中、输入框上方；点击和后续流式增量调用 `scrollTo({ behavior: "smooth" })`。`smoothFollowRef` 避免动画中途的滚动事件误判为用户离开底部，鼠标滚轮或触摸开始时允许用户中断跟随。消息更新后的 `useLayoutEffect` 先处理 S3-3 的向上分页高度补偿；分页位置补偿和切换会话后的首次定位仍即时完成。按钮位于滚动容器外层，不改变消息列表的 `scrollHeight`。动态媒体异步加载后的额外高度变化暂未专项处理。
 
 ## 环境门禁
 
