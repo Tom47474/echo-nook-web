@@ -43,7 +43,7 @@ export function MessageList({ messages, status, conversationId, hasMore, loading
     const viewport = viewportRef.current;
     if (!viewport) return;
     if (previousConversationRef.current !== conversationId) {
-      // 切换会话是一次新的阅读起点；打开后先展示该会话最新消息。
+      // 登录或退出会切换身份窗口；新窗口打开后先展示其最新消息。
       previousConversationRef.current = conversationId;
       prependRef.current = null;
       followingRef.current = true;
