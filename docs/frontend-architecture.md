@@ -71,7 +71,9 @@ Next.js 页面默认保持服务端组件；需要事件与状态的 `Conversati
 
 S3-2 增加 `conversation-url.ts`：新建/切换使用 `history.pushState` 写入 `?conversation=<UUID>`，首次无参数或删除当前会话使用 `replaceState` 规范化地址；监听 `popstate` 处理浏览器后退/前进。直达链接通过 `GET /api/v1/conversations/{id}` 校验并取得标题，因此不依赖列表第一页是否包含目标。无效/已删除链接回退最近会话并显示提示；查询失败不会被当成资源不存在。
 
-S3-3 首次读取最近 100 条消息；响应的 `has_more` 和 `next_before_sequence` 被适配为 `hasMore/nextBeforeSequence`。用户滚到顶部或点击按钮时，Hook 以游标每次读取更早 50 条，按消息 ID 去重并补到现有消息前；切换会话时取消旧分页并用加载版本阻止迟到结果污染新会话。消息列表在请求前记录 `scrollHeight/scrollTop`，旧消息渲染后按新增高度补偿 `scrollTop`，保持用户阅读的那一条在原位置。失败显示可重试提示，`hasMore=false` 时不再请求。流式自动跟随仍按原逻辑，S3-4 再优化。
+S3-3 首次读取最近 100 条消息；响应的 `has_more` 和 `next_before_sequence` 被适配为 `hasMore/nextBeforeSequence`。用户滚到顶部或点击按钮时，Hook 以游标每次读取更早 50 条，按消息 ID 去重并补到现有消息前；切换会话时取消旧分页并用加载版本阻止迟到结果污染新会话。消息列表在请求前记录 `scrollHeight/scrollTop`，旧消息渲染后按新增高度补偿 `scrollTop`，保持用户阅读的那一条在原位置。失败显示可重试提示，`hasMore=false` 时不再请求。
+
+S3-4 在消息列表内部用 `followingRef` 记录跟随意图。滚动时按 `scrollHeight - clientHeight - scrollTop <= 80px` 判定是否接近底部；远离底部暂停自动滚动并显示“回到底部”，手动滚回或点击按钮后恢复。消息更新后的 `useLayoutEffect` 先处理 S3-3 的向上分页高度补偿，随后才根据跟随状态决定是否滚到底部；切换会话重置为跟随新会话最新消息。按钮位于滚动容器外层，不改变消息列表的 `scrollHeight`。动态媒体异步加载后的额外高度变化暂未专项处理。
 
 ## 环境门禁
 
