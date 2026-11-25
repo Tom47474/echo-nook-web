@@ -1,6 +1,6 @@
 # EchoNook Web
 
-EchoNook 是一个面向桌面浏览器的虚拟陪伴频道。当前仓库是独立的前端项目，基于 Next.js、React、TypeScript 和 Tailwind CSS。当前版本提供频道场景、文字对话界面、连接 FastAPI 的可停止流式回复，以及由服务端数据库保存的历史会话。语音和虚拟人物将在后续迭代中接入。
+EchoNook 是一个面向桌面浏览器的虚拟陪伴频道。当前仓库是独立的前端项目，基于 Next.js、React、TypeScript 和 Tailwind CSS。当前版本提供频道场景、文字对话界面、连接 FastAPI 的可停止流式回复，以及由服务端数据库保存的单个持续对话窗口。语音和虚拟人物将在后续迭代中接入。
 
 ## 本地运行
 
@@ -18,9 +18,9 @@ npm run lint
 npm run build
 ```
 
-输入文字后，前端调用服务端 `/api/v1/conversations/{conversation_id}/messages:stream` 并逐段显示回复。首次发送前如果没有活动会话，前端会先创建会话；刷新页面会读取服务端会话列表并打开最近会话。服务端的 `FRONTEND_ORIGIN` 应与浏览器访问前端的地址一致。
+输入文字后，前端调用服务端 `/api/v1/conversations/{conversation_id}/messages:stream` 并逐段显示回复。页面启动时按当前身份取得唯一窗口；刷新后继续读取该窗口的消息。服务端的 `FRONTEND_ORIGIN` 应与浏览器访问前端的地址一致。
 
-当前浏览器会先通过 `/api/v1/identity/bootstrap` 建立游客身份，之后的会话 REST 和 SSE 请求都携带服务端签发的 HttpOnly Cookie。顶部可注册、登录和退出；登录后若本浏览器有游客会话，页面会先询问是否导入，用户确认后才转移到账号。游客与账号都可使用文字对话；登录账号可在另一浏览器登录恢复自己的会话，游客凭证丢失后无法仅凭链接找回。界面不展示 token 用量。正式部署需同站 HTTPS，并检查 Cookie 和 `FRONTEND_ORIGIN` 配置。
+当前浏览器会先通过 `/api/v1/identity/bootstrap` 建立游客身份，之后的会话 REST 和 SSE 请求都携带服务端签发的 HttpOnly Cookie。页头右侧在游客态显示登录与注册，账号态显示默认头像、用户名及退出。登录直接显示账号窗口，退出恢复原浏览器的游客窗口；两者消息不会合并。游客与账号都可使用文字对话；登录账号可在另一浏览器登录恢复自己的会话，游客凭证丢失后无法仅凭链接找回。界面不展示 token 用量。正式部署需同站 HTTPS，并检查 Cookie 和 `FRONTEND_ORIGIN` 配置。
 
 ## 环境与对话调试
 
@@ -34,8 +34,8 @@ npm run build
 
 - 桌面频道页面与窄屏纵向布局
 - 消息输入、Enter 发送和 Shift + Enter 换行
-- 真实流式回复、停止生成和新建对话
-- 会话列表、新建、切换、删除及最近消息恢复
+- 真实流式回复、停止生成和单窗口消息恢复
+- 清空当前身份的全部对话消息，游客与账号互不影响
 - 使用服务端数据库历史继续对话，浏览器不再提交历史上下文
 - 失败时保留部分回答，可把原问题作为新回合再次提问
 - 区分配置、鉴权、模型、限流、超时、网络和断流错误
@@ -62,8 +62,8 @@ public/                  可直接访问的静态资源
 
 ## 前后端连接
 
-后端位于独立仓库 `echo-nook-api`。`conversation-api.ts` 负责会话列表、创建、消息读取和删除；`http-reply-provider.ts` 负责持久化流式接口、SSE 解析和后端错误处理；`use-conversation.ts` 管理活动会话、消息状态、停止、切换隔离和再次提问，页面组件不直接调用接口。历史上下文由服务端数据库构造，前端只提交本次输入。`NEXT_PUBLIC_API_BASE_URL` 可覆盖默认后端地址。`demo-reply-provider.ts` 保留为离线演示实现，目前页面不使用它。
+后端位于独立仓库 `echo-nook-api`。`conversation-api.ts` 负责当前窗口、消息读取和清空；`http-reply-provider.ts` 负责持久化流式接口、SSE 解析和后端错误处理；`use-current-conversation.ts` 管理唯一窗口、消息状态、停止、清空和再次提问，页面组件不直接调用接口。历史上下文由服务端数据库构造，前端只提交本次输入。`NEXT_PUBLIC_API_BASE_URL` 可覆盖默认后端地址。`demo-reply-provider.ts` 保留为离线演示实现，目前页面不使用它。
 
-运行 `npm test` 执行会话 API 映射、对话 Hook、SSE 解析、切换隔离和流取消测试；提交前同时运行 `npm run lint` 与 `npm run build`。
+运行 `npm test` 执行当前窗口 API 映射、对话 Hook、身份入口与 SSE 解析测试；提交前同时运行 `npm run lint` 与 `npm run build`。
 
-第三阶段 S3-1 至 S3-4 已完成。当前会话写入 `/?conversation=<会话UUID>`；刷新或直接打开链接会恢复指定会话，浏览器后退/前进也会切换。已删除或无效链接会回退到最近会话并提示；其他加载失败会显示错误。首次读取最新 100 条消息；滚动到消息顶部或点击“加载更早消息”，会按 `before_sequence` 每次再读 50 条，并保持原阅读位置。新内容仅在用户接近底部时平滑跟随；向上阅读时可点击输入框上方、消息区水平居中的向下箭头平滑回到底部。
+第三阶段曾实现多会话列表与 URL 切换；当前需求已将其替换为每个身份一个窗口。首次读取最新 100 条消息，滚动到顶部时按 `before_sequence` 每次再读 50 条；新内容仅在接近底部时平滑跟随。右上角头像只在登录态显示。清空按钮位于对话区标题栏，仅清空当前身份的消息。

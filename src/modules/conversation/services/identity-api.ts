@@ -1,6 +1,6 @@
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
-export type Identity = { id: string; kind: "guest" | "account"; username: string | null; importable_count: number };
+export type Identity = { id: string; kind: "guest" | "account"; username: string | null };
 
 function endpoint(path: string): string {
   return `${apiBaseUrl.replace(/\/$/, "")}/api/v1/identity${path}`;
@@ -20,7 +20,7 @@ async function identityRequest(path: string, body?: object): Promise<Identity> {
   return response.json() as Promise<Identity>;
 }
 
-// 同一页面的列表和流式请求共用首次游客初始化，避免并发创建多个游客身份。
+// 同一页面的消息和流式请求共用首次游客初始化，避免并发创建多个游客身份。
 let bootstrapPromise: Promise<Identity> | null = null;
 export function ensureIdentity(): Promise<Identity> {
   if (!bootstrapPromise) {
@@ -44,10 +44,4 @@ export const identityApi = {
   register: (username: string, password: string) => changeIdentity("/register", { username, password }),
   login: (username: string, password: string) => changeIdentity("/login", { username, password }),
   logout: () => changeIdentity("/logout"),
-  async importGuest(): Promise<number> {
-    const response = await fetch(endpoint("/import"), { method: "POST", credentials: "include" });
-    if (!response.ok) throw new Error("导入游客会话失败，请稍后重试。");
-    const payload = await response.json() as { imported_count: number };
-    return payload.imported_count;
-  },
 };

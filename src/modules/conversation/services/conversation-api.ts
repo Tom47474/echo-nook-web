@@ -21,7 +21,6 @@ type MessageDto = {
   error_code: string | null;
 };
 
-type ConversationListDto = { items: ConversationDto[] };
 type MessagePageDto = { items: MessageDto[]; has_more: boolean; next_before_sequence: number | null };
 
 function endpoint(path: string): string {
@@ -83,33 +82,20 @@ async function ensureOk(response: Response, fallback: string): Promise<void> {
 
 /** 会话 REST API 集中放在适配层，组件和 Hook 不直接拼接 URL 或解析 snake_case。 */
 export const conversationApi = {
-  async list(signal?: AbortSignal): Promise<ConversationSummary[]> {
+  async current(signal?: AbortSignal): Promise<ConversationSummary> {
     await ensureIdentity();
-    const response = await fetch(endpoint("/conversations?offset=0&limit=100"), { signal, credentials: "include" });
-    await ensureOk(response, "加载会话列表失败。");
-    const payload = await response.json() as ConversationListDto;
-    return payload.items.map(mapConversation);
-  },
-
-  async get(conversationId: string, signal?: AbortSignal): Promise<ConversationSummary | null> {
-    await ensureIdentity();
-    // 404 表示链接指向已删除的会话；422 表示 URL ID 格式错误。其他错误交给页面显示。
-    const response = await fetch(endpoint(`/conversations/${encodeURIComponent(conversationId)}`), { signal, credentials: "include" });
-    if (response.status === 404 || response.status === 422) return null;
-    await ensureOk(response, "加载指定会话失败。");
+    // 当前身份只有一个对话窗口；首次访问由服务端原子创建。
+    const response = await fetch(endpoint("/conversations/current"), { signal, credentials: "include" });
+    await ensureOk(response, "加载对话失败。");
     return mapConversation(await response.json() as ConversationDto);
   },
 
-  async create(title = "新对话"): Promise<ConversationSummary> {
+  async clearCurrent(): Promise<void> {
     await ensureIdentity();
-    const response = await fetch(endpoint("/conversations"), {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title }),
+    const response = await fetch(endpoint("/conversations/current/messages"), {
+      method: "DELETE", credentials: "include",
     });
-    await ensureOk(response, "创建会话失败。");
-    return mapConversation(await response.json() as ConversationDto);
+    await ensureOk(response, "清空对话失败。");
   },
 
   async messages(conversationId: string, signal?: AbortSignal, beforeSequence?: number): Promise<MessagePage> {
@@ -130,12 +116,4 @@ export const conversationApi = {
     };
   },
 
-  async delete(conversationId: string): Promise<void> {
-    await ensureIdentity();
-    const response = await fetch(endpoint(`/conversations/${encodeURIComponent(conversationId)}`), {
-      method: "DELETE",
-      credentials: "include",
-    });
-    await ensureOk(response, "删除会话失败。");
-  },
 };

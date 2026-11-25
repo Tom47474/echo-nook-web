@@ -6,25 +6,20 @@ vi.mock("./identity-api", () => ({ ensureIdentity: vi.fn().mockResolvedValue({ k
 describe("conversationApi", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("maps the conversation list from server snake_case fields", async () => {
+  it("loads the single current window from server snake_case fields", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      items: [{
         id: "conversation-1",
         title: "测试会话",
         created_at: "2026-11-24T01:00:00Z",
         updated_at: "2026-11-24T02:00:00Z",
-      }],
-      total: 1,
-      offset: 0,
-      limit: 100,
     }), { status: 200 })));
 
-    await expect(conversationApi.list()).resolves.toEqual([{
+    await expect(conversationApi.current()).resolves.toEqual({
       id: "conversation-1",
       title: "测试会话",
       createdAt: "2026-11-24T01:00:00Z",
       updatedAt: "2026-11-24T02:00:00Z",
-    }]);
+    });
   });
 
   it("restores turn ids, sequence and failed error information from stored messages", async () => {
@@ -69,24 +64,16 @@ describe("conversationApi", () => {
     });
   });
 
-  it("uses DELETE for conversation removal", async () => {
+  it("uses DELETE to clear only current window messages", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await conversationApi.delete("conversation/1");
+    await conversationApi.clearCurrent();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/conversations/conversation%2F1"),
+      expect.stringContaining("/conversations/current/messages"),
       { method: "DELETE", credentials: "include" },
     );
-  });
-
-  it("distinguishes missing direct links from request failures", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(null, { status: 404 }))
-      .mockResolvedValueOnce(new Response(null, { status: 503 })));
-
-    await expect(conversationApi.get("deleted-id")).resolves.toBeNull();
-    await expect(conversationApi.get("offline-id")).rejects.toThrow("加载指定会话失败");
   });
 
   it("passes before_sequence and maps the next cursor", async () => {

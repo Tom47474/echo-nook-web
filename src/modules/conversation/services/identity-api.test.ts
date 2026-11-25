@@ -5,8 +5,8 @@ afterEach(() => vi.unstubAllGlobals());
 
 it("shares guest bootstrap and sends cookie credentials for account login", async () => {
   const fetchMock = vi.fn()
-    .mockResolvedValueOnce(new Response(JSON.stringify({ id: "guest-1", kind: "guest", username: null, importable_count: 0 })))
-    .mockResolvedValueOnce(new Response(JSON.stringify({ id: "account-1", kind: "account", username: "alice", importable_count: 1 })));
+    .mockResolvedValueOnce(new Response(JSON.stringify({ id: "guest-1", kind: "guest", username: null })))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ id: "account-1", kind: "account", username: "alice" })));
   vi.stubGlobal("fetch", fetchMock);
 
   const [first, second] = await Promise.all([ensureIdentity(), ensureIdentity()]);
