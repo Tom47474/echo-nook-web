@@ -8,10 +8,6 @@ const knownCodes = new Set<ConversationErrorCode>([
   "provider_rate_limited",
   "provider_timeout",
   "provider_unreachable",
-  "conversation_daily_limit",
-  "conversation_rate_limited",
-  "conversation_in_progress",
-  "conversation_server_busy",
   "generation_failed",
   "stream_interrupted",
 ]);
@@ -20,8 +16,6 @@ const nonRetryableCodes = new Set<ConversationErrorCode>([
   "provider_not_configured",
   "provider_auth_failed",
   "model_not_available",
-  // 日额度当天不会因立即重试恢复，隐藏“再次提问”可避免重复制造 429。
-  "conversation_daily_limit",
 ]);
 
 export function normalizeErrorCode(value: unknown): ConversationErrorCode {

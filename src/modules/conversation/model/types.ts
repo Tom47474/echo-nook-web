@@ -9,10 +9,6 @@ export type ConversationErrorCode =
   | "provider_rate_limited"
   | "provider_timeout"
   | "provider_unreachable"
-  | "conversation_daily_limit"
-  | "conversation_rate_limited"
-  | "conversation_in_progress"
-  | "conversation_server_busy"
   | "generation_failed"
   | "stream_interrupted";
 

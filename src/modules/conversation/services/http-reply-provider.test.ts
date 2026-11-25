@@ -68,21 +68,6 @@ describe("HttpReplyProvider", () => {
     }
   });
 
-  it("keeps a structured limit error from a non-streaming 429 response", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      detail: { code: "conversation_daily_limit", message: "今日对话额度已用完" },
-    }), { status: 429, headers: { "Content-Type": "application/json" } })));
-
-    try {
-      const stream = new HttpReplyProvider().streamReply("conversation", "问题", new AbortController().signal);
-      await expect(stream[Symbol.asyncIterator]().next()).rejects.toMatchObject({
-        detail: { code: "conversation_daily_limit", message: "今日对话额度已用完", retryable: false },
-      });
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
   it("cancels the response body when a consumer stops reading early", async () => {
     let cancelled = false;
     const body = new ReadableStream<Uint8Array>({

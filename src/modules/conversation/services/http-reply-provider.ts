@@ -48,18 +48,6 @@ function parseFrame(frame: StreamEvent): ReplyStreamEvent | null {
   return null;
 }
 
-async function responseError(response: Response): Promise<ConversationRequestError> {
-  /** 非 SSE 拒绝（例如 429）仍读取服务端 detail，不能统一降级成网络错误。 */
-  const payload = await response.json().catch(() => null) as {
-    detail?: { code?: unknown; message?: unknown };
-  } | null;
-  const code = normalizeErrorCode(payload?.detail?.code);
-  const message = typeof payload?.detail?.message === "string"
-    ? payload.detail.message
-    : `服务端请求失败（${response.status}）。`;
-  return new ConversationRequestError(createConversationError(code, message));
-}
-
 export class HttpReplyProvider implements ReplyProvider {
   /**
    * 只把本次输入发送给会话流式接口。历史上下文由服务端从数据库读取，
@@ -86,8 +74,9 @@ export class HttpReplyProvider implements ReplyProvider {
       );
     }
     if (!response.ok || !response.body) {
-      if (!response.ok) throw await responseError(response);
-      throw new ConversationRequestError(createConversationError("network_error", "服务端未返回响应内容。"));
+      throw new ConversationRequestError(
+        createConversationError("network_error", `服务端请求失败（${response.status}）。`),
+      );
     }
 
     const reader = response.body.getReader();
