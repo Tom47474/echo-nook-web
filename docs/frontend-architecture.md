@@ -13,7 +13,7 @@
 | `src/app/` | Next.js App Router 入口。`page.tsx` 组装首页，`layout.tsx` 设置页面元数据和根结构，`globals.css` 定义全局基础样式。这里不写对话业务逻辑。 |
 | `src/modules/channel/` | 频道展示模块。`components/` 存放页面结构、页头和场景。`index.ts` 是模块公开入口。以后可在此组装角色与背景场景。 |
 | `src/modules/conversation/` | 对话业务模块。封装消息展示、输入、状态和回复来源。`index.ts` 只导出外部需要的组件。 |
-| `src/modules/conversation/components/` | 对话界面。`conversation-panel.tsx` 组装会话列表、消息列表和输入，`conversation-list.tsx` 负责新建、切换和删除入口，其他组件负责消息、输入和滚动。 |
+| `src/modules/conversation/components/` | 对话界面。`conversation-panel.tsx` 等身份初始化后组装会话列表、消息列表和输入；`identity-controls.tsx` 提供注册、登录、退出及游客会话确认导入；`conversation-list.tsx` 负责新建、切换和删除入口。 |
 | `src/modules/conversation/hooks/` | `use-conversation.ts` 管理会话初始化、新建、切换、删除、消息恢复、发送、流式追加、失败保留和停止。它是 UI 与服务之间的协调层。 |
 | `src/modules/conversation/model/` | `types.ts` 定义消息、回合、会话、状态和错误类型；`conversation-error.ts` 统一错误码、是否可再次提问及异常转换。后端 DTO 保留在 `services/conversation-api.ts` 的适配边界内，经 mapper 转为此处类型。 |
 | `src/modules/conversation/services/` | `conversation-api.ts` 适配会话 REST API 和 DTO；`reply-provider.ts` 定义流事件接口；`http-reply-provider.ts` 调用持久化流式接口并解析 SSE；`demo-reply-provider.ts` 保留作离线演示。 |
@@ -74,6 +74,8 @@ S3-2 增加 `conversation-url.ts`：新建/切换使用 `history.pushState` 写�
 S3-3 首次读取最近 100 条消息；响应的 `has_more` 和 `next_before_sequence` 被适配为 `hasMore/nextBeforeSequence`。用户滚到顶部或点击按钮时，Hook 以游标每次读取更早 50 条，按消息 ID 去重并补到现有消息前；切换会话时取消旧分页并用加载版本阻止迟到结果污染新会话。消息列表在请求前记录 `scrollHeight/scrollTop`，旧消息渲染后按新增高度补偿 `scrollTop`，保持用户阅读的那一条在原位置。失败显示可重试提示，`hasMore=false` 时不再请求。
 
 S3-4 在消息列表内部用 `followingRef` 记录跟随意图。滚动时按 `scrollHeight - clientHeight - scrollTop <= 80px` 判定是否接近底部；远离底部暂停自动滚动并显示向下箭头，手动滚回或点击箭头后恢复。箭头位于消息区水平居中、输入框上方；点击和后续流式增量调用 `scrollTo({ behavior: "smooth" })`。`smoothFollowRef` 避免动画中途的滚动事件误判为用户离开底部，鼠标滚轮或触摸开始时允许用户中断跟随。消息更新后的 `useLayoutEffect` 先处理 S3-3 的向上分页高度补偿；分页位置补偿和切换会话后的首次定位仍即时完成。按钮位于滚动容器外层，不改变消息列表的 `scrollHeight`。动态媒体异步加载后的额外高度变化暂未专项处理。
+
+S5-1 在 `identity-api.ts` 中合并首次 `/identity/bootstrap` 请求，避免列表与流式调用并发创建多个游客。会话组件等待身份建立后再挂载；`conversation-api.ts` 和 `http-reply-provider.ts` 均使用 `credentials: "include"`，服务端以 HttpOnly Cookie 判断游客或账号，浏览器不发送可信 `owner_id`。注册或登录后按新身份重新挂载会话 Hook，重新读取其会话列表；若服务端报告本浏览器还有游客会话，`identity-controls.tsx` 提示“导入/暂不导入”，不自动迁移。导入成功后再次刷新列表；账号退出后恢复游客身份。界面不展示模型 token 用量。实际跨设备与 HTTPS Cookie 行为仍需 S5-4 部署联调。
 
 ## 环境门禁
 

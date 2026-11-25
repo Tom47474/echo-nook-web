@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { conversationApi } from "./conversation-api";
 
+vi.mock("./identity-api", () => ({ ensureIdentity: vi.fn().mockResolvedValue({ kind: "guest" }) }));
+
 describe("conversationApi", () => {
   afterEach(() => vi.unstubAllGlobals());
 
@@ -75,7 +77,7 @@ describe("conversationApi", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/conversations/conversation%2F1"),
-      { method: "DELETE" },
+      { method: "DELETE", credentials: "include" },
     );
   });
 

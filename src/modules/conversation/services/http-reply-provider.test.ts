@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { HttpReplyProvider, readFrames } from "./http-reply-provider";
 
+vi.mock("./identity-api", () => ({ ensureIdentity: vi.fn().mockResolvedValue({ kind: "guest" }) }));
+
 function streamingResponse(frames: string[]): Response {
   const encoder = new TextEncoder();
   return new Response(new ReadableStream<Uint8Array>({

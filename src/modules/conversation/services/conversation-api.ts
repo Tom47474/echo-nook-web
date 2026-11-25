@@ -1,5 +1,6 @@
 import { createConversationError, ConversationRequestError, normalizeErrorCode } from "../model/conversation-error";
 import type { ConversationSummary, Message, MessagePage, MessageStatus } from "../model/types";
+import { ensureIdentity } from "./identity-api";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -83,23 +84,27 @@ async function ensureOk(response: Response, fallback: string): Promise<void> {
 /** 会话 REST API 集中放在适配层，组件和 Hook 不直接拼接 URL 或解析 snake_case。 */
 export const conversationApi = {
   async list(signal?: AbortSignal): Promise<ConversationSummary[]> {
-    const response = await fetch(endpoint("/conversations?offset=0&limit=100"), { signal });
+    await ensureIdentity();
+    const response = await fetch(endpoint("/conversations?offset=0&limit=100"), { signal, credentials: "include" });
     await ensureOk(response, "加载会话列表失败。");
     const payload = await response.json() as ConversationListDto;
     return payload.items.map(mapConversation);
   },
 
   async get(conversationId: string, signal?: AbortSignal): Promise<ConversationSummary | null> {
+    await ensureIdentity();
     // 404 表示链接指向已删除的会话；422 表示 URL ID 格式错误。其他错误交给页面显示。
-    const response = await fetch(endpoint(`/conversations/${encodeURIComponent(conversationId)}`), { signal });
+    const response = await fetch(endpoint(`/conversations/${encodeURIComponent(conversationId)}`), { signal, credentials: "include" });
     if (response.status === 404 || response.status === 422) return null;
     await ensureOk(response, "加载指定会话失败。");
     return mapConversation(await response.json() as ConversationDto);
   },
 
   async create(title = "新对话"): Promise<ConversationSummary> {
+    await ensureIdentity();
     const response = await fetch(endpoint("/conversations"), {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title }),
     });
@@ -108,12 +113,13 @@ export const conversationApi = {
   },
 
   async messages(conversationId: string, signal?: AbortSignal, beforeSequence?: number): Promise<MessagePage> {
+    await ensureIdentity();
     // 首页保留最近 100 条；更早的页面按服务端返回的 sequence 游标取 50 条。
     const query = new URLSearchParams({ limit: beforeSequence === undefined ? "100" : "50" });
     if (beforeSequence !== undefined) query.set("before_sequence", String(beforeSequence));
     const response = await fetch(
       endpoint(`/conversations/${encodeURIComponent(conversationId)}/messages?${query}`),
-      { signal },
+      { signal, credentials: "include" },
     );
     await ensureOk(response, "加载会话消息失败。");
     const payload = await response.json() as MessagePageDto;
@@ -125,8 +131,10 @@ export const conversationApi = {
   },
 
   async delete(conversationId: string): Promise<void> {
+    await ensureIdentity();
     const response = await fetch(endpoint(`/conversations/${encodeURIComponent(conversationId)}`), {
       method: "DELETE",
+      credentials: "include",
     });
     await ensureOk(response, "删除会话失败。");
   },

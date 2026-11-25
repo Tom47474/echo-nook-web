@@ -1,5 +1,6 @@
 import { ConversationRequestError, createConversationError, normalizeErrorCode } from "../model/conversation-error";
 import type { ReplyProvider, ReplyStreamEvent } from "./reply-provider";
+import { ensureIdentity } from "./identity-api";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -53,12 +54,14 @@ export class HttpReplyProvider implements ReplyProvider {
    * 浏览器不再提交可被篡改或与数据库不一致的 history。
    */
   async *streamReply(conversationId: string, message: string, signal: AbortSignal): AsyncIterable<ReplyStreamEvent> {
+    await ensureIdentity();
     let response: Response;
     try {
       response = await fetch(
         `${apiBaseUrl.replace(/\/$/, "")}/api/v1/conversations/${encodeURIComponent(conversationId)}/messages:stream`,
         {
           method: "POST",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message }),
           signal,

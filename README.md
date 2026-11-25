@@ -20,6 +20,8 @@ npm run build
 
 输入文字后，前端调用服务端 `/api/v1/conversations/{conversation_id}/messages:stream` 并逐段显示回复。首次发送前如果没有活动会话，前端会先创建会话；刷新页面会读取服务端会话列表并打开最近会话。服务端的 `FRONTEND_ORIGIN` 应与浏览器访问前端的地址一致。
 
+当前浏览器会先通过 `/api/v1/identity/bootstrap` 建立游客身份，之后的会话 REST 和 SSE 请求都携带服务端签发的 HttpOnly Cookie。顶部可注册、登录和退出；登录后若本浏览器有游客会话，页面会先询问是否导入，用户确认后才转移到账号。游客与账号都可使用文字对话；登录账号可在另一浏览器登录恢复自己的会话，游客凭证丢失后无法仅凭链接找回。界面不展示 token 用量。正式部署需同站 HTTPS，并检查 Cookie 和 `FRONTEND_ORIGIN` 配置。
+
 ## 环境与对话调试
 
 复制 `.env.example` 可以查看完整配置。`APP_ENV` 使用 `development`、`test` 或 `production`，`ENABLE_CONVERSATION_DEBUG=true` 用于显式开启对话调试浮动球。调试面板只有在 `APP_ENV` 为 `development` 或 `test` 且开关为 `true` 时才挂载；`production` 即使误设开关也会强制关闭。`NEXT_PUBLIC_API_BASE_URL` 会进入浏览器构建产物，不能在任何 `NEXT_PUBLIC_` 变量中保存密钥。
